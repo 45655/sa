@@ -213,6 +213,56 @@ class Encoder:
         text = tokens_bytes.decode('utf-8', errors='replace')
         return text
 
+# Adding Rotary Positional Embeddings (ROPE) as a means a means for recording the position of the embeddings as well. 
+class RotaryPositionalEmbedding(nn.Module):
+  def __init__(self, d: int, base: int = 10000):
+    super().__init__()
+    self.d = d
+
+    inv_frequency = 1.0/(base**(torch.arange(0,d,2).float()/d)) ## The theta values will be equal to 10000^(2i/d) for i between (0 to d/2). We use d/2 because we will be following pair-wise rotation of dimensions
+    self.register_buffer("inv_frequency",inv_frequency)
+
+    self.cos_cached = None
+    self.sin_cached = None
+
+  def _build_cache(self, x: torch.Tensor):
+    """
+    Builds a cache for cos and sin values based on the sequence length of x.
+    x shape: [batch, seq_len, num_heads, head_dim] or [batch, seq_len, head_dim]
+    """
+    seq_len = x.shape[1]
+
+    # Only rebuild cache if sequence length increases or cache is empty
+    if self.cos_cached is None or seq_len > self.cos_cached.shape[1]:
+    # Create position indices [0, 1, ..., seq_len-1]
+      t = torch.arange(seq_len, device=x.device).type_as(self.inv_frequency)
+
+      # Outer product to get matrix of (pos * theta)
+      # freqs shape: [seq_len, d/2]
+      freqs = torch.einsum("i,j->ij", t, self.inv_frequency)
+
+      # Repeat frequencies for the 'rotate half' trick: [cos(f1), cos(f2), cos(f1), cos(f2)]
+      # emb shape: [seq_len, d]
+      emb = torch.cat((freqs, freqs), dim=-1)
+
+      # Cache shape: [1, seq_len, 1, d] to allow broadcasting across batch and heads
+      self.cos_cached = emb.cos()[None, :, None, :]
+      self.sin_cached = emb.sin()[None, :, None, :]
+
+  @staticmethod
+  def _rotate_half(x: torch.Tensor):
+    x1, x2 = x[..., :x.shape[-1]//2], x[..., x.shape[-1]//2:]
+    return torch.cat((-x2, x1), dim=-1)
+
+  def forward(self, x: torch.Tensor):
+    if self.cos_cached is None:
+      self._build_cache(x)
+    seq_len = x.shape[1]
+    cos = self.cos_cached[:, :seq_len, :, :].to(x.device)
+    sin = self.sin_cached[:, :seq_len, :, :].to(x.device)
+
+    return (x * cos) + (RotaryPositionalEmbedding._rotate_half(x) * sin)
+
 def get_file(local_file, remote_file):
     """ downloads remote_file to local_file if necessary """
     if not os.path.isfile(local_file):
@@ -277,6 +327,7 @@ class BPETokenizer:
         # decode indices to text
         text = self.encoder.decode(idx.tolist())
         return text
+
 
 
 if __name__ == '__main__':
