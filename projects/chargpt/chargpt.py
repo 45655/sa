@@ -33,6 +33,7 @@ def get_config():
 
     # trainer
     C.trainer = Trainer.get_default_config()
+    C.trainer.max_iters = 1000
     C.trainer.learning_rate = 5e-4 # the model we're using is so small that we can go a bit faster
 
     return C
@@ -115,7 +116,9 @@ if __name__ == '__main__':
             model.eval()
             with torch.no_grad():
                 # sample from the model...
-                context = "O God, O God!"
+                # context = "O God, O God!"
+                
+                context = "love"
                 x = torch.tensor([train_dataset.stoi[s] for s in context], dtype=torch.long)[None,...].to(trainer.device)
                 y = model.generate(x, 500, temperature=1.0, do_sample=True, top_k=10)[0]
                 completion = ''.join([train_dataset.itos[int(i)] for i in y])
