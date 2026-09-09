@@ -226,11 +226,8 @@ class GPT(nn.Module):
         whitelist_weight_modules = (torch.nn.Linear, )
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
         for mn, m in self.named_modules():
-            for pn, p in m.named_parameters():
+            for pn, p in m.named_parameters(recurse=False):
                 fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
-                # random note: because named_modules and named_parameters are recursive
-                # we will see the same tensors p many many times. but doing it this way
-                # allows us to know which parent module any tensor p belongs to...
                 if pn.endswith('bias'):
                     # all biases will not be decayed
                     no_decay.add(fpn)
